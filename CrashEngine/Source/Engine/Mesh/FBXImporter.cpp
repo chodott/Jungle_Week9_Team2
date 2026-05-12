@@ -564,7 +564,6 @@ std::unique_ptr<FStaticMesh> FFBXImporter::ParseStaticGeometry(FbxNode* InNode, 
 		FbxMaterialIndexToSectionIndex.assign(NodeMaterialCount, -1);
 	}
 
-	CtrlPointToVertexIndex.assign(InFbxMesh->GetControlPointsCount(), TArray<int>());
 	for (int i = 0; i < PolygonCount; i++)
     {
 		uint32 TriangleIndices[3];
@@ -599,7 +598,6 @@ std::unique_ptr<FStaticMesh> FFBXImporter::ParseStaticGeometry(FbxNode* InNode, 
 
             Result->Vertices.push_back(vertex);
             TriangleIndices[j] = VertexCount;
-            CtrlPointToVertexIndex[ctrlPointIndex].push_back(VertexCount);
             VertexCount++;
 		}
 
@@ -668,6 +666,7 @@ std::unique_ptr<FStaticMesh> FFBXImporter::ParseStaticGeometry(FbxNode* InNode, 
         Result->Indices.insert(Result->Indices.end(), PendingSection.Indices.begin(), PendingSection.Indices.end());
     }
 
+	Result->CacheBounds();
 	return Result;
 }
 
