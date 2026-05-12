@@ -53,7 +53,7 @@ private:
     bool HandleBonePicking(const FRay& Ray);
 };
 
-class FSkeletalMeshViewerCommandTool : public FPreviewViewportTool
+class FSkeletalMeshNavigationTool : public FPreviewViewportTool
 {
 public:
     using FPreviewViewportTool::FPreviewViewportTool;
@@ -65,8 +65,16 @@ private:
     bool HandleWheelZoom(float DeltaTime);
 
 	float CameraMoveSensitivity = 0.2f;
-    float CameraRotateSensitivity = 0.2f;
-    float CameraZoomSpeed = 0.2f;
+    float CameraRotateSensitivity = 2.0f;
+    float CameraZoomSpeed = 2.0f;
     float CameraMoveSpeed = 10.0f;
-    float CameraRotationSpeed = 0.2f;
+    float CameraRotationSpeed = 2.0f;
+};
+
+class FSkeletalMeshCommandTool : public FPreviewViewportTool
+{
+public:
+    using FPreviewViewportTool::FPreviewViewportTool;
+
+    bool HandleInput(float DeltaTime) override;
 };
