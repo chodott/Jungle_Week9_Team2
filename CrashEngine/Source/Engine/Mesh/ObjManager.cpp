@@ -7,6 +7,7 @@
 #include "Serialization/WindowsArchive.h"
 #include "Engine/Platform/Paths.h"
 #include "Materials/MaterialManager.h"
+#include "Mesh/FBXImporter.h"
 #include <filesystem>
 #include <algorithm>
 #include <cwctype>
@@ -37,11 +38,11 @@ namespace
         return Ext == L".bin";
     }
 
-    bool IsObjExtension(const std::filesystem::path& Path)
+    bool IsObjFbxExtension(const std::filesystem::path& Path)
     {
         std::wstring Ext = Path.extension().wstring();
         std::transform(Ext.begin(), Ext.end(), Ext.begin(), ::towlower);
-        return Ext == L".obj";
+        return Ext == L".obj" || Ext == L".fbx";
     }
 
     FString BuildSiblingCachePath(const FString& OriginalPath)
@@ -135,7 +136,7 @@ void FObjManager::ScanObjSourceFiles()
         }
 
         const std::filesystem::path& Path = Entry.path();
-        if (!IsObjExtension(Path) || IsInsideCacheFolder(Path))
+        if (!IsObjFbxExtension(Path) || IsInsideCacheFolder(Path))
         {
             continue;
         }
@@ -229,8 +230,24 @@ UStaticMesh* FObjManager::LoadObjStaticMesh(const FString& PathFileName, const F
     const FString CacheKey = GetBinaryFilePath(PathFileName);
     StaticMeshCache.erase(CacheKey);
 
+    const std::filesystem::path SourcePath = FPaths::ToPath(PathFileName);
+    FString Extension = SourcePath.extension().string();
+    std::transform(
+        Extension.begin(),
+        Extension.end(),
+        Extension.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
     UStaticMesh* StaticMesh = UObjectManager::Get().CreateObject<UStaticMesh>();
-    if (!TryImportStaticMesh(PathFileName, &Options, StaticMesh, CacheKey))
+    if (Extension == ".fbx")
+    {
+        if (!FFBXImporter::ImportStaticAndCacheAll(PathFileName, Options, StaticMesh))
+        {
+            UE_LOG(ObjManager, Error, "Failed to import FBX static mesh: %s", PathFileName.c_str());
+            return nullptr;
+        }
+    }
+    else if (!TryImportStaticMesh(PathFileName, &Options, StaticMesh, CacheKey))
     {
         return nullptr;
     }
@@ -290,7 +307,27 @@ UStaticMesh* FObjManager::LoadObjStaticMesh(const FString& PathFileName, bool bR
 
     if (bNeedRebuild)
     {
-        if (!TryImportStaticMesh(PathFileName, nullptr, StaticMesh, BinPath))
+        const std::filesystem::path SourcePath = FPaths::ToPath(PathFileName);
+        FString Extension = SourcePath.extension().string();
+
+        std::transform(
+            Extension.begin(),
+            Extension.end(),
+            Extension.begin(),
+            [](unsigned char c)
+            {
+                return static_cast<char>(std::tolower(c));
+            });
+
+		if (Extension == ".fbx")
+        {
+            if (!FFBXImporter::ImportStaticAndCacheAll(PathFileName, FImportOptions::Default(), StaticMesh))
+            {
+                UE_LOG(ObjManager, Error, "Failed to import FBX static mesh: %s", PathFileName.c_str());
+                return nullptr;
+            }
+        }
+        else if (!TryImportStaticMesh(PathFileName, nullptr, StaticMesh, BinPath))
         {
             return nullptr;
         }

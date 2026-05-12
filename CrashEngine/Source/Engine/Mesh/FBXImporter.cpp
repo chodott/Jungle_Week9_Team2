@@ -5,6 +5,7 @@
 #include "Animation/AnimationSequence.h"
 #include "Serialization/WindowsArchive.h"
 #include "Engine/Platform/Paths.h"
+#include "Engine/Mesh/ObjManager.h"
 #include "Core/Logging/LogMacros.h"
 #include "Object/Object.h"
 #include <filesystem>
@@ -224,7 +225,7 @@ void FFBXImporter::Initialize()
     bInitialized = true;
 }
 
-bool FFBXImporter::ImportStaticAndCacheAll(const FString& FBXFilePath, const FImportOptions& Options)
+bool FFBXImporter::ImportStaticAndCacheAll(const FString& FBXFilePath, const FImportOptions& Options, UStaticMesh* OutMesh)
 {
     Initialize();
 
@@ -357,10 +358,27 @@ bool FFBXImporter::ImportStaticAndCacheAll(const FString& FBXFilePath, const FIm
         static_cast<uint32>(MergedAsset->Sections.size()),
         static_cast<uint32>(MergedMaterials.size()));
 
-    // TODO(part 5+): bail-out 처리, UStaticMesh 컨테이너 연결, .bin 캐시 기록.
+	if (MergedAsset->Vertices.empty())
+    {
+		return false;
+	}
 
-    Scene->Destroy();
-    return !MergedAsset->Vertices.empty();
+	MergedAsset->PathFileName = FBXFilePath;
+    MergedAsset->CacheBounds();
+
+    OutMesh->SetStaticMaterials(std::move(MergedMaterials));
+    OutMesh->SetStaticMeshAsset(MergedAsset.release());
+
+    const FString BinPath = FObjManager::GetBinaryFilePath(FBXFilePath);
+    FWindowsBinWriter Writer(BinPath);
+    if (Writer.IsValid()) {
+        OutMesh->Serialize(Writer);
+		Scene->Destroy();
+		return true;
+	}
+
+	Scene->Destroy();
+	return false;
 }
 
 bool FFBXImporter::ImportAndCacheAll(const FString& FBXFilePath, const FImportOptions& Options)
