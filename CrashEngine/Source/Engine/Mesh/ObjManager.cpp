@@ -38,11 +38,18 @@ namespace
         return Ext == L".bin";
     }
 
-    bool IsObjFbxExtension(const std::filesystem::path& Path)
+    bool IsObjExtension(const std::filesystem::path& Path)
     {
         std::wstring Ext = Path.extension().wstring();
         std::transform(Ext.begin(), Ext.end(), Ext.begin(), ::towlower);
-        return Ext == L".obj" || Ext == L".fbx";
+        return Ext == L".obj";
+    }
+
+	bool IsFbxExtension(const std::filesystem::path& Path)
+    {
+        std::wstring Ext = Path.extension().wstring();
+        std::transform(Ext.begin(), Ext.end(), Ext.begin(), ::towlower);
+        return Ext == L".fbx";
     }
 
     FString BuildSiblingCachePath(const FString& OriginalPath)
@@ -136,7 +143,7 @@ void FObjManager::ScanObjSourceFiles()
         }
 
         const std::filesystem::path& Path = Entry.path();
-        if (!IsObjFbxExtension(Path) || IsInsideCacheFolder(Path))
+        if (!IsObjExtension(Path) || !IsFbxExtension(Path) || IsInsideCacheFolder(Path))
         {
             continue;
         }
