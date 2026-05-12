@@ -553,7 +553,7 @@ std::unique_ptr<FStaticMesh> FFBXImporter::ParseStaticGeometry(FbxNode* InNode, 
 	struct FPendingSectionBuild
     {
 		FString MaterialSlotName;
-		TArray<uint32> Indicees;
+		TArray<uint32> Indices;
 	};
 
 	TArray<FPendingSectionBuild> PendingSections;
@@ -565,8 +565,110 @@ std::unique_ptr<FStaticMesh> FFBXImporter::ParseStaticGeometry(FbxNode* InNode, 
 	}
 
 	CtrlPointToVertexIndex.assign(InFbxMesh->GetControlPointsCount(), TArray<int>());
+	for (int i = 0; i < PolygonCount; i++)
+    {
+		uint32 TriangleIndices[3];
+		for (int j = 0; j < 3; j++)
+        {
+            int ctrlPointIndex = InFbxMesh->GetPolygonVertex(i, j); 
+            FVertexPNCT_T vertex;
+            FbxVector4 pos = controlPoints[ctrlPointIndex];
+            vertex.Position = FVector((float)pos[0], (float)pos[1], (float)pos[2]);
 
+            FbxVector4 normal;
+            if (InFbxMesh->GetPolygonVertexNormal(i, j, normal))
+                vertex.Normal = FVector((float)normal[0], (float)normal[1], (float)normal[2]);
 
+            if (TangentList)
+            {
+                FbxVector4 tangent = (*TangentList)[i * 3 + j];
+                vertex.Tangent = FVector((float)tangent[0], (float)tangent[1], (float)tangent[2]);
+            }
+
+            FbxStringList uvSetNameList;
+            InFbxMesh->GetUVSetNames(uvSetNameList);
+            if (uvSetNameList.GetCount() > 0)
+            {
+                FbxVector2 uv;
+                bool unmapped;
+                if (InFbxMesh->GetPolygonVertexUV(i, j, uvSetNameList.GetStringAt(0), uv, unmapped))
+                {
+                    vertex.UV = FVector2((float)uv[0], 1.0f - (float)uv[1]); // UV V flip
+                }
+            }
+
+            Result->Vertices.push_back(vertex);
+            TriangleIndices[j] = VertexCount;
+            CtrlPointToVertexIndex[ctrlPointIndex].push_back(VertexCount);
+            VertexCount++;
+		}
+
+		if (Options.WindingOrder == EWindingOrder::CCW_to_CW)
+        {
+			std::swap(TriangleIndices[1], TriangleIndices[2]);
+		}
+
+		int32 SectionIndex = 0;
+		if (NodeMaterialCount > 0)
+        {
+			const int32 FbxMaterialIndex = GetFbxPolygonMaterialIndex(InNode, InFbxMesh, i);
+			SectionIndex = FbxMaterialIndexToSectionIndex[FbxMaterialIndex];
+			if (SectionIndex == -1)
+            {
+				FPendingSectionBuild NewSection;
+				FbxSurfaceMaterial* FbxMaterial = InNode->GetMaterial(FbxMaterialIndex);
+				NewSection.MaterialSlotName = BuildValidMaterialSlotName(
+					FbxMaterial ? FString(FbxMaterial->GetName()) : FString(),
+					FbxMaterialIndex);
+				PendingSections.push_back(std::move(NewSection));
+				SectionIndex = static_cast<int32>(PendingSections.size()) -1;
+				FbxMaterialIndexToSectionIndex[FbxMaterialIndex] = SectionIndex;
+
+				FStaticMaterial NewMaterial;
+
+				// TODO: Mirror Obj material loading sequence
+				NewMaterial.MaterialInterface = nullptr;
+				NewMaterial.MaterialSlotName = PendingSections[SectionIndex].MaterialSlotName;
+				OutMaterials.push_back(std::move(NewMaterial));
+			}
+		}
+        else if (PendingSections.empty())
+        {
+			FPendingSectionBuild DefaultSectionBuild;
+			DefaultSectionBuild.MaterialSlotName = "Default";
+			PendingSections.push_back(DefaultSectionBuild);
+
+			FStaticMaterial DefaultMaterial;
+			DefaultMaterial.MaterialInterface = nullptr;
+			DefaultMaterial.MaterialSlotName = "Default";
+			OutMaterials.push_back(std::move(DefaultMaterial));
+		}
+
+		PendingSections[SectionIndex].Indices.push_back(TriangleIndices[0]);
+        PendingSections[SectionIndex].Indices.push_back(TriangleIndices[1]);
+        PendingSections[SectionIndex].Indices.push_back(TriangleIndices[2]);
+	}
+
+	Result->Indices.clear();
+	Result->Indices.reserve(static_cast<size_t>(PolygonCount) * 3);
+    for (int32 SectionIndex = 0; SectionIndex < static_cast<int32>(PendingSections.size()); ++SectionIndex)
+    {
+        const FPendingSectionBuild& PendingSection = PendingSections[SectionIndex];
+        if (PendingSection.Indices.empty())
+        {
+            continue;
+        }
+
+        FStaticMeshSection NewSection;
+        NewSection.MaterialIndex = SectionIndex;
+        NewSection.MaterialSlotName = PendingSection.MaterialSlotName;
+        NewSection.FirstIndex = static_cast<uint32>(Result->Indices.size());
+        NewSection.NumTriangles = static_cast<uint32>(PendingSection.Indices.size() / 3);
+        Result->Sections.push_back(NewSection);
+        Result->Indices.insert(Result->Indices.end(), PendingSection.Indices.begin(), PendingSection.Indices.end());
+    }
+
+	return Result;
 }
 
 std::unique_ptr<FSkeletalSubMesh> FFBXImporter::ParseSkeletalGeometry(FbxNode* InNode, FbxMesh* InFbxMesh, const FImportOptions& Options, TArray<FStaticMaterial>& OutMaterials)
