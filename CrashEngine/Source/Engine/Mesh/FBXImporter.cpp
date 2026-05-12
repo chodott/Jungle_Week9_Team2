@@ -187,6 +187,8 @@ FFBXImporter::FImportedFBXAssets::~FImportedFBXAssets()
 {
     for (auto* Mesh : SkeletalMeshes) delete Mesh;
     SkeletalMeshes.clear();
+	for (auto* Mesh : StaticMeshes) delete Mesh;
+	StaticMeshes.clear();
     // UObject들은 UObjectManager가 관리하므로 여기서 직접 해제하지 않음
 }
 
@@ -194,7 +196,8 @@ FFBXImporter::FImportedFBXAssets::FImportedFBXAssets(FImportedFBXAssets&& Other)
     : SkeletalMeshes(std::move(Other.SkeletalMeshes)),
       Skeletons(std::move(Other.Skeletons)),
       Animations(std::move(Other.Animations)),
-      Materials(std::move(Other.Materials))
+      Materials(std::move(Other.Materials)),
+	  StaticMeshes(std::move(Other.StaticMeshes))
 {
 }
 
@@ -207,6 +210,7 @@ FFBXImporter::FImportedFBXAssets& FFBXImporter::FImportedFBXAssets::operator=(FI
         Skeletons = std::move(Other.Skeletons);
         Animations = std::move(Other.Animations);
         Materials = std::move(Other.Materials);
+		StaticMeshes = std::move(Other.StaticMeshes);
     }
     return *this;
 }
