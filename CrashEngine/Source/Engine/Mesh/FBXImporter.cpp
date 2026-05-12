@@ -1,5 +1,6 @@
 ﻿#include "Mesh/FBXImporter.h"
 #include "Mesh/SkeletalMesh.h"
+#include "Mesh/StaticMesh.h"
 #include "Mesh/Skeleton.h"
 #include "Animation/AnimationSequence.h"
 #include "Serialization/WindowsArchive.h"
@@ -292,7 +293,31 @@ bool FFBXImporter::ImportStaticAndCacheAll(const FString& FBXFilePath, const FIm
     Importer->Import(Scene);
     Importer->Destroy();
 
+	 FbxNode* RootNode = Scene->GetRootNode();
+    if (RootNode)
+    {
+        // 먼저 삼각형화 수행
+        FbxGeometryConverter Converter = FbxGeometryConverter(SdkManager);
+        Converter.Triangulate(Scene, true);
 
+        // 그 후 엔진의 좌표계(Z-up, X-forward, Left-handed)에 맞게 씬 변환
+        // DeepConvertScene은 노드 transform뿐 아니라 vertex, pose, skin cluster bind matrix까지
+        // 같은 기준으로 변환하므로 Transform/TransformLink와 EvaluateGlobalTransform의 축이 어긋나지 않습니다.
+        FbxAxisSystem UEAxisSystem(FbxAxisSystem::eZAxis, FbxAxisSystem::eParityEven, FbxAxisSystem::eLeftHanded);
+        UEAxisSystem.DeepConvertScene(Scene);
+
+        // 단위계도 엔진 기준(미터)으로 정규화. cm 기반 FBX(블렌더/MMD 등)와 m 기반 FBX 모두 동일한 스케일에서 처리하기 위함.
+        if (Scene->GetGlobalSettings().GetSystemUnit() != FbxSystemUnit::m)
+        {
+            FbxSystemUnit::m.ConvertScene(Scene);
+        }
+
+		UStaticMesh* Container = UObjectManager::Get().CreateObject<UStaticMesh>();
+
+    }
+
+    Scene->Destroy();
+    return true;
 }
 
 bool FFBXImporter::ImportAndCacheAll(const FString& FBXFilePath, const FImportOptions& Options)
