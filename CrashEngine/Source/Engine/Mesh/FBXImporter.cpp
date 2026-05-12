@@ -453,7 +453,7 @@ void FFBXImporter::ExtractMeshAndSkinning(FbxNode* Node, const FImportOptions& O
         FbxMesh* fbxMesh = Node->GetMesh();
         
         TArray<FStaticMaterial> ExtractedMaterials;
-        std::unique_ptr<FSkeletalSubMesh> ExtractedMesh = ParseGeometry(Node, fbxMesh, Options, ExtractedMaterials);
+        std::unique_ptr<FSkeletalSubMesh> ExtractedMesh = ParseSkeletalGeometry(Node, fbxMesh, Options, ExtractedMaterials);
         if (ExtractedMesh)
         {
             BoneWeighting.assign(ExtractedMesh->Vertices.size(), TArray<FBoneWeighting>());
@@ -512,6 +512,13 @@ void FFBXImporter::ExtractMeshAndSkinning(FbxNode* Node, const FImportOptions& O
                         FName(Node->GetName()), ExtractedMesh.release(), OwnerSkeleton->GetFName(), std::move(ExtractedMaterials));
                     OutAsset.SkeletalMeshes.push_back(NewMesh);
                 }
+
+				// Fall back as a static mesh
+				else
+                {
+					FVertexPNCT_T StaticVertex = {};
+
+				}
             }
         }
     }
@@ -521,7 +528,48 @@ void FFBXImporter::ExtractMeshAndSkinning(FbxNode* Node, const FImportOptions& O
     }
 }
 
-std::unique_ptr<FSkeletalSubMesh> FFBXImporter::ParseGeometry(FbxNode* InNode, FbxMesh* InFbxMesh, const FImportOptions& Options, TArray<FStaticMaterial>& OutMaterials)
+std::unique_ptr<FStaticMesh> FFBXImporter::ParseStaticGeometry(FbxNode* InNode, FbxMesh* InFbxMesh, const FImportOptions& Options, TArray<FStaticMaterial>& OutMaterials)
+{
+	std::unique_ptr<FStaticMesh> Result = std::make_unique<FStaticMesh>();
+
+    FbxVector4* controlPoints = InFbxMesh->GetControlPoints();
+    int PolygonCount = InFbxMesh->GetPolygonCount();
+    int VertexCount = 0;
+
+	int TangentCount = InFbxMesh->GetElementTangentCount();
+	if (TangentCount < PolygonCount)
+    {
+		FbxStringList UVSetNameList;
+		InFbxMesh->GetUVSetNames(UVSetNameList);
+		if (UVSetNameList.GetCount() > 0)
+        {
+			InFbxMesh->GenerateTangentsData(UVSetNameList.GetStringAt(0));
+		}
+	}
+
+	FbxLayerElementArrayTemplate<FbxVector4>* TangentList = nullptr;
+	InFbxMesh->GetTangents(&TangentList, 0);
+
+	struct FPendingSectionBuild
+    {
+		FString MaterialSlotName;
+		TArray<uint32> Indicees;
+	};
+
+	TArray<FPendingSectionBuild> PendingSections;
+	TArray<int32> FbxMaterialIndexToSectionIndex;
+	const int32 NodeMaterialCount = InNode ? InNode->GetMaterialCount() : 0;
+	if (NodeMaterialCount > 0)
+    {
+		FbxMaterialIndexToSectionIndex.assign(NodeMaterialCount, -1);
+	}
+
+	CtrlPointToVertexIndex.assign(InFbxMesh->GetControlPointsCount(), TArray<int>());
+
+
+}
+
+std::unique_ptr<FSkeletalSubMesh> FFBXImporter::ParseSkeletalGeometry(FbxNode* InNode, FbxMesh* InFbxMesh, const FImportOptions& Options, TArray<FStaticMaterial>& OutMaterials)
 {
     std::unique_ptr<FSkeletalSubMesh> Result = std::make_unique<FSkeletalSubMesh>();
     

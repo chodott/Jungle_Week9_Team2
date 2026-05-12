@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "Core/CoreTypes.h"
 #include "Mesh/MeshImporterCommon.h"
@@ -30,6 +30,8 @@ struct FFBXImporter
 
     struct FImportedFBXAssets
     {
+		TArray<FStaticMesh*> StaticMeshes;
+
         TArray<FImportedSkeletalMesh*> SkeletalMeshes;
         TArray<USkeleton*> Skeletons;
         TArray<UAnimationSequence*> Animations;
@@ -57,7 +59,8 @@ private:
     static void ExtractBoneNodeRecursive(FbxNode* Node, int ParentIndex, USkeleton* OutSkeleton);
     static void ExtractMeshAndSkinning(FbxNode* Node, const FImportOptions& Options, FImportedFBXAssets& InAsset);
     static void ExtractAnimations(FbxScene* Scene, FImportedFBXAssets& OutAssets);  // PlaceHolder, 아직 미구현
-    static std::unique_ptr<FSkeletalSubMesh> ParseGeometry(FbxNode* InNode, FbxMesh* InFbxMesh, const FImportOptions& Options, TArray<FStaticMaterial>& OutMaterials);
+    static std::unique_ptr<FSkeletalSubMesh> ParseSkeletalGeometry(FbxNode* InNode, FbxMesh* InFbxMesh, const FImportOptions& Options, TArray<FStaticMaterial>& OutMaterials);
+    static std::unique_ptr<FStaticMesh> ParseStaticGeometry(FbxNode* InNode, FbxMesh* InFbxMesh, const FImportOptions& Options, TArray<FStaticMaterial>& OutMaterials);
     static FTransform GetTransformFromNode(FbxNode* Node);
     static FTransform GetTransformFromMatrix(const FMatrix& Matrix);
     static FMatrix ConvertFbxMatrix(const FbxMatrix& Matrix);
