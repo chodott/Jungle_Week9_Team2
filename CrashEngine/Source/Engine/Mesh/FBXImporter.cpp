@@ -301,7 +301,10 @@ bool FFBXImporter::ImportStaticAndCacheAll(const FString& FBXFilePath, const FIm
                         V.Tangent.Normalize();
                     }
 
+					// -----------------------------------------------------------------------------
+					// Materials
                     // 머티리얼 슬롯은 slot name 기준으로 dedup. 동일 이름이면 같은 머티리얼로 간주
+                    // -----------------------------------------------------------------------------
                     for (FStaticMaterial& Mat : LocalMaterials)
                     {
                         if (SlotNameToMergedIndex.find(Mat.MaterialSlotName) == SlotNameToMergedIndex.end())
@@ -319,7 +322,7 @@ bool FFBXImporter::ImportStaticAndCacheAll(const FString& FBXFilePath, const FIm
                     MergedAsset->Indices.reserve(MergedAsset->Indices.size() + Local->Indices.size());
                     for (size_t i = 0; i + 2 < Local->Indices.size(); i += 3)
                     {
-                        uint32 a = Local->Indices[i]     + VertexOffset;
+                        uint32 a = Local->Indices[i] + VertexOffset;
                         uint32 b = Local->Indices[i + 1] + VertexOffset;
                         uint32 c = Local->Indices[i + 2] + VertexOffset;
                         if (bFlipWinding)
@@ -337,7 +340,7 @@ bool FFBXImporter::ImportStaticAndCacheAll(const FString& FBXFilePath, const FIm
                         NewSection.MaterialSlotName = LocalSection.MaterialSlotName;
                         NewSection.FirstIndex = LocalSection.FirstIndex + IndexOffset;
                         NewSection.NumTriangles = LocalSection.NumTriangles;
-                        NewSection.MaterialIndex = -1; // UStaticMesh::SetStaticMeshAsset에서 slot name으로 재계산됨
+                        NewSection.MaterialIndex = -1; 
                         MergedAsset->Sections.push_back(NewSection);
                     }
                 }
