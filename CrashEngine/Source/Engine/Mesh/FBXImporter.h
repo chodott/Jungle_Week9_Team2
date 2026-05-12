@@ -49,6 +49,7 @@ struct FFBXImporter
 
     // FBX 파일을 분석하여 발견된 모든 리소스를 각각의 .bin 파일로 캐시 폴더에 저장합니다.
     static bool ImportAndCacheAll(const FString& FBXFilePath, const FImportOptions& Options);
+	static bool ImportStaticAndCacheAll(const FString& FBXFilePath, const FImportOptions& Options);
 
     // FBX 파일로부터 모든 메시와 스켈레톤 데이터를 추출합니다.
     static bool ImportAll(const FString& FBXFilePath, const FImportOptions& Options, FImportedFBXAssets& OutAssets);

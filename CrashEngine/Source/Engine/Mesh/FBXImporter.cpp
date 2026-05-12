@@ -276,6 +276,25 @@ void FFBXImporter::Initialize()
     bInitialized = true;
 }
 
+bool FFBXImporter::ImportStaticAndCacheAll(const FString& FBXFilePath, const FImportOptions& Options)
+{
+    Initialize();
+
+    FbxImporter* Importer = FbxImporter::Create(SdkManager, "");
+    if (!Importer->Initialize(FBXFilePath.c_str(), -1, SdkManager->GetIOSettings()))
+    {
+        UE_LOG(FbxImporter, Error, "FbxImporter::Initialize() failed: %s", Importer->GetStatus().GetErrorString());
+        Importer->Destroy();
+        return false;
+    }
+
+    FbxScene* Scene = FbxScene::Create(SdkManager, "myScene");
+    Importer->Import(Scene);
+    Importer->Destroy();
+
+
+}
+
 bool FFBXImporter::ImportAndCacheAll(const FString& FBXFilePath, const FImportOptions& Options)
 {
     FImportedFBXAssets Assets;
