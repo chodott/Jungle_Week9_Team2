@@ -143,7 +143,7 @@ void FObjManager::ScanObjSourceFiles()
         }
 
         const std::filesystem::path& Path = Entry.path();
-        if (!IsObjExtension(Path) || !IsFbxExtension(Path) || IsInsideCacheFolder(Path))
+        if ((!IsObjExtension(Path) && !IsFbxExtension(Path)) || IsInsideCacheFolder(Path))
         {
             continue;
         }
