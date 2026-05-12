@@ -240,7 +240,11 @@ bool FFBXImporter::ImportStaticAndCacheAll(const FString& FBXFilePath, const FIm
     Importer->Import(Scene);
     Importer->Destroy();
 
-	FbxNode* RootNode = Scene->GetRootNode();
+    std::unique_ptr<FStaticMesh> MergedAsset = std::make_unique<FStaticMesh>();
+    TArray<FStaticMaterial> MergedMaterials;
+    std::unordered_map<FString, int32> SlotNameToMergedIndex;
+
+    FbxNode* RootNode = Scene->GetRootNode();
     if (RootNode)
     {
         // 먼저 삼각형화 수행
@@ -248,45 +252,115 @@ bool FFBXImporter::ImportStaticAndCacheAll(const FString& FBXFilePath, const FIm
         Converter.Triangulate(Scene, true);
 
         // 그 후 엔진의 좌표계(Z-up, X-forward, Left-handed)에 맞게 씬 변환
-        // DeepConvertScene은 노드 transform뿐 아니라 vertex, pose, skin cluster bind matrix까지
-        // 같은 기준으로 변환하므로 Transform/TransformLink와 EvaluateGlobalTransform의 축이 어긋나지 않습니다.
         FbxAxisSystem UEAxisSystem(FbxAxisSystem::eZAxis, FbxAxisSystem::eParityEven, FbxAxisSystem::eLeftHanded);
         UEAxisSystem.DeepConvertScene(Scene);
 
-        // 단위계도 엔진 기준(미터)으로 정규화. cm 기반 FBX(블렌더/MMD 등)와 m 기반 FBX 모두 동일한 스케일에서 처리하기 위함.
+        // 단위계도 엔진 기준(미터)으로 정규화.
         if (Scene->GetGlobalSettings().GetSystemUnit() != FbxSystemUnit::m)
         {
             FbxSystemUnit::m.ConvertScene(Scene);
         }
 
-		UStaticMesh* Container = UObjectManager::Get().CreateObject<UStaticMesh>();
-
-		for (int i = 0; i < RootNode->GetChildCount(); i++)
+        // 모든 eMesh 노드를 정적 메시 스냅샷으로 취급 (skinned 포함)
+        auto VisitNode = [&](auto&& Self, FbxNode* Node) -> void
         {
-            FbxNode* ChildNode = RootNode->GetChild(i);
-			if (!ChildNode) continue;
-
-			FbxNodeAttribute* Attr = ChildNode->GetNodeAttribute();
-            if (Attr && (Attr->GetAttributeType() == FbxNodeAttribute::eMesh))
+            if (!Node)
             {
-                FbxMesh* Mesh = static_cast<FbxMesh*>(Attr);
-                TArray<FStaticMaterial> StaticMaterials;
-                std::unique_ptr<FStaticMesh> ExtractedMesh = ParseStaticGeometry(ChildNode, Mesh, Options, StaticMaterials);
-
-				FbxAMatrix Global = ChildNode->EvaluateGlobalTransform();
-                FbxAMatrix Geo; // geometric offset
-                Geo.SetT(ChildNode->GetGeometricTranslation(FbxNode::eSourcePivot));
-                Geo.SetR(ChildNode->GetGeometricRotation(FbxNode::eSourcePivot));
-                Geo.SetS(ChildNode->GetGeometricScaling(FbxNode::eSourcePivot));
-                FMatrix Combined = ConvertFbxMatrix(Global * Geo);
-
-
+                return;
             }
-		}
+
+            FbxNodeAttribute* Attr = Node->GetNodeAttribute();
+            FbxMesh* Mesh = (Attr && Attr->GetAttributeType() == FbxNodeAttribute::eMesh) ? Node->GetMesh() : nullptr;
+            if (Mesh)
+            {
+                TArray<FStaticMaterial> LocalMaterials;
+                std::unique_ptr<FStaticMesh> Local = ParseStaticGeometry(Node, Mesh, Options, LocalMaterials);
+                if (Local && !Local->Vertices.empty())
+                {
+                    FbxAMatrix Global = Node->EvaluateGlobalTransform();
+                    FbxAMatrix Geo;
+                    Geo.SetT(Node->GetGeometricTranslation(FbxNode::eSourcePivot));
+                    Geo.SetR(Node->GetGeometricRotation(FbxNode::eSourcePivot));
+                    Geo.SetS(Node->GetGeometricScaling(FbxNode::eSourcePivot));
+                    const FMatrix Combined = ConvertFbxMatrix(Geo * Global);
+
+                    // negative 3x3 determinant indicates a mirror transformation
+                    const float Det3 =
+                        Combined.M[0][0] * (Combined.M[1][1] * Combined.M[2][2] - Combined.M[1][2] * Combined.M[2][1])
+                      - Combined.M[0][1] * (Combined.M[1][0] * Combined.M[2][2] - Combined.M[1][2] * Combined.M[2][0])
+                      + Combined.M[0][2] * (Combined.M[1][0] * Combined.M[2][1] - Combined.M[1][1] * Combined.M[2][0]);
+                    const bool bFlipWinding = Det3 < 0.0f;
+
+                    for (FVertexPNCT_T& V : Local->Vertices)
+                    {
+                        V.Position = Combined.TransformPositionWithW(V.Position);
+                        V.Normal = Combined.TransformVector(V.Normal);
+                        V.Normal.Normalize();
+                        V.Tangent = Combined.TransformVector(FVector(V.Tangent.X, V.Tangent.Y, V.Tangent.Z));
+                        V.Tangent.Normalize();
+                    }
+
+                    // 머티리얼 슬롯은 slot name 기준으로 dedup. 동일 이름이면 같은 머티리얼로 간주
+                    for (FStaticMaterial& Mat : LocalMaterials)
+                    {
+                        if (SlotNameToMergedIndex.find(Mat.MaterialSlotName) == SlotNameToMergedIndex.end())
+                        {
+                            SlotNameToMergedIndex.emplace(Mat.MaterialSlotName, static_cast<int32>(MergedMaterials.size()));
+                            MergedMaterials.push_back(std::move(Mat));
+                        }
+                    }
+
+                    const uint32 VertexOffset = static_cast<uint32>(MergedAsset->Vertices.size());
+                    const uint32 IndexOffset = static_cast<uint32>(MergedAsset->Indices.size());
+
+                    MergedAsset->Vertices.insert(MergedAsset->Vertices.end(), Local->Vertices.begin(), Local->Vertices.end());
+
+                    MergedAsset->Indices.reserve(MergedAsset->Indices.size() + Local->Indices.size());
+                    for (size_t i = 0; i + 2 < Local->Indices.size(); i += 3)
+                    {
+                        uint32 a = Local->Indices[i]     + VertexOffset;
+                        uint32 b = Local->Indices[i + 1] + VertexOffset;
+                        uint32 c = Local->Indices[i + 2] + VertexOffset;
+                        if (bFlipWinding)
+                        {
+                            std::swap(b, c);
+                        }
+                        MergedAsset->Indices.push_back(a);
+                        MergedAsset->Indices.push_back(b);
+                        MergedAsset->Indices.push_back(c);
+                    }
+
+                    for (const FStaticMeshSection& LocalSection : Local->Sections)
+                    {
+                        FStaticMeshSection NewSection;
+                        NewSection.MaterialSlotName = LocalSection.MaterialSlotName;
+                        NewSection.FirstIndex = LocalSection.FirstIndex + IndexOffset;
+                        NewSection.NumTriangles = LocalSection.NumTriangles;
+                        NewSection.MaterialIndex = -1; // UStaticMesh::SetStaticMeshAsset에서 slot name으로 재계산됨
+                        MergedAsset->Sections.push_back(NewSection);
+                    }
+                }
+            }
+
+            for (int i = 0; i < Node->GetChildCount(); ++i)
+            {
+                Self(Self, Node->GetChild(i));
+            }
+        };
+        VisitNode(VisitNode, RootNode);
     }
 
+    UE_LOG(FbxImporter, Info,
+        "Static FBX parse complete: %u verts, %u indices, %u sections, %u materials",
+        static_cast<uint32>(MergedAsset->Vertices.size()),
+        static_cast<uint32>(MergedAsset->Indices.size()),
+        static_cast<uint32>(MergedAsset->Sections.size()),
+        static_cast<uint32>(MergedMaterials.size()));
+
+    // TODO(part 5+): bail-out 처리, UStaticMesh 컨테이너 연결, .bin 캐시 기록.
+
     Scene->Destroy();
-    return true;
+    return !MergedAsset->Vertices.empty();
 }
 
 bool FFBXImporter::ImportAndCacheAll(const FString& FBXFilePath, const FImportOptions& Options)
